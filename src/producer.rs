@@ -1,7 +1,7 @@
 //! Message publication
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
-    io::Write,
+    io::{Cursor, Write},
     pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -347,7 +347,7 @@ impl<Exe: Executor> Producer<Exe> {
                 match message.partition_key.to_owned() {
                     None => p.next().send(message).await,
                     Some(partition_key) => {
-                        p.get_producer(partition_key).send(message).await
+                        p.get_producer(partition_key)?.send(message).await
                     },
                 }
             }
@@ -430,11 +430,15 @@ impl<Exe: Executor> PartitionedProducer<Exe> {
 
 impl<Exe: Executor> PartitionedProducer<Exe> {
     #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all))]
-    pub fn get_producer(&mut self, partition_key: String) -> &mut TopicProducer<Exe> {
+    pub fn get_producer(&mut self, partition_key: String) -> Result<&mut TopicProducer<Exe>, Error> {
         let n = self.producers.len();
-        let hash = seahash::hash(partition_key.as_bytes()) as usize;
+        let hash_result = murmur3::murmur3_32(&mut Cursor::new(partition_key), 0);
+        if let Err(err) = hash_result {
+            return Err(Error::Custom(err.to_string()))
+        }
+        let hash = hash_result.unwrap() as usize;
         let index = hash % n;
-        self.producers.get_mut(index).unwrap()
+        Ok(self.producers.get_mut(index).unwrap())
     }
 }
 
