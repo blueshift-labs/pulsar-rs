@@ -342,7 +342,15 @@ impl<Exe: Executor> Producer<Exe> {
     ) -> Result<SendFuture, Error> {
         match &mut self.inner {
             ProducerInner::Single(p) => p.send(message).await,
-            ProducerInner::Partitioned(p) => p.next().send(message).await,
+            ProducerInner::Partitioned(p) => {
+                let message = T::serialize_message(message)?;
+                match message.partition_key.to_owned() {
+                    None => p.next().send(message).await,
+                    Some(partition_key) => {
+                        p.get_producer(partition_key).send(message).await
+                    },
+                }
+            }
         }
     }
 
@@ -417,6 +425,16 @@ impl<Exe: Executor> PartitionedProducer<Exe> {
     pub fn next(&mut self) -> &mut TopicProducer<Exe> {
         self.producers.rotate_left(1);
         self.producers.front_mut().unwrap()
+    }
+}
+
+impl<Exe: Executor> PartitionedProducer<Exe> {
+    #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all))]
+    pub fn get_producer(&mut self, partition_key: String) -> &mut TopicProducer<Exe> {
+        let n = self.producers.len();
+        let hash = seahash::hash(partition_key.as_bytes()) as usize;
+        let index = hash % n;
+        self.producers.get_mut(index).unwrap()
     }
 }
 
