@@ -34,27 +34,6 @@ Try out [examples](examples):
 - [consumer](examples/consumer.rs)
 - [reader](examples/reader.rs)
 
-### Project Maintainers
-
-- [@CleverAkanoa](https://github.com/CleverAkanoa)
-- [@DonghunLouisLee](https://github.com/DonghunLouisLee)
-- [@FlorentinDUBOIS](https://github.com/FlorentinDUBOIS)
-- [@Geal](https://github.com/Geal)
-- [@fantapsody](https://github.com/fantapsody)
-- [@freeznet](https://github.com/freeznet)
-- [@stearnsc](https://github.com/stearnsc)
-- [@tisonkun](https://github.com/tisonkun)
-
-### Contribution
-
-This project welcomes your PR and issues. For example, refactoring, adding features, correcting English, etc.
-
-Thanks to all the people who already contributed!
-
-<a href="https://github.com/streamnative/pulsar-rs/graphs/contributors">
-  <img src="https://contributors-img.web.app/image?repo=streamnative/pulsar-rs" />
-</a>
-
 ### License
 
 This library is licensed under the terms of both the MIT license and the Apache License (Version 2.0), and may include packages written by third parties which carry their own copyright notices and license terms.
