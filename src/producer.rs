@@ -1,4 +1,5 @@
 //! Message publication
+use rand::Rng;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     io::{Cursor, Write},
@@ -361,13 +362,21 @@ impl<Exe: Executor> Producer<Exe> {
         T: SerializeMessage,
         I: IntoIterator<Item = T>,
     {
-        let producer = match &mut self.inner {
-            ProducerInner::Single(p) => p,
-            ProducerInner::Partitioned(p) => p.next(),
-        };
         let mut sends = Vec::new();
         for message in messages {
-            sends.push(producer.send(message).await);
+            let result = match &mut self.inner {
+                ProducerInner::Single(p) => p.send(message).await,
+                ProducerInner::Partitioned(p) => {
+                    let message = T::serialize_message(message)?;
+                    match message.partition_key.to_owned() {
+                        None => p.next().send(message).await,
+                        Some(partition_key) => {
+                            p.get_producer(partition_key)?.send(message).await
+                        },
+                    }
+                },
+            };
+            sends.push(result);
         }
         if sends.iter().all(|s| s.is_ok()) {
             Ok(sends.into_iter().map(|s| s.unwrap()).collect())
@@ -393,7 +402,14 @@ impl<Exe: Executor> Producer<Exe> {
     pub(crate) async fn send_raw(&mut self, message: ProducerMessage) -> Result<SendFuture, Error> {
         match &mut self.inner {
             ProducerInner::Single(p) => p.send_raw(message).await,
-            ProducerInner::Partitioned(p) => p.next().send_raw(message).await,
+            ProducerInner::Partitioned(p) => {
+                match message.partition_key.to_owned() {
+                    None => p.next().send_raw(message).await,
+                    Some(partition_key) => {
+                        p.get_producer(partition_key)?.send_raw(message).await
+                    },
+                }
+            },
         }
     }
 
@@ -415,7 +431,7 @@ enum ProducerInner<Exe: Executor> {
 
 struct PartitionedProducer<Exe: Executor> {
     // Guaranteed to be non-empty
-    producers: VecDeque<TopicProducer<Exe>>,
+    producers: Vec<TopicProducer<Exe>>,
     topic: String,
     options: ProducerOptions,
 }
@@ -423,8 +439,9 @@ struct PartitionedProducer<Exe: Executor> {
 impl<Exe: Executor> PartitionedProducer<Exe> {
     #[cfg_attr(feature = "telemetry", tracing::instrument(skip_all))]
     pub fn next(&mut self) -> &mut TopicProducer<Exe> {
-        self.producers.rotate_left(1);
-        self.producers.front_mut().unwrap()
+        let len = self.producers.len();
+        let index = rand::thread_rng().gen_range(0..len);
+        self.producers.get_mut(index).unwrap()
     }
 }
 
@@ -867,9 +884,7 @@ impl<Exe: Executor> ProducerBuilder<Exe> {
             }
             1 => ProducerInner::Single(producers.into_iter().next().unwrap()),
             _ => {
-                let mut producers = VecDeque::from(producers);
-                // write to topic-1 first
-                producers.rotate_right(1);
+                let producers = producers;
                 ProducerInner::Partitioned(PartitionedProducer {
                     producers,
                     topic,
